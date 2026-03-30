@@ -109,12 +109,36 @@ RULES:
 # ============================================================================
 
 class SOCEnvClient:
-    """HTTP client for the SOC Analyst Environment endpoints."""
+    """
+    HTTP client for the SOC Analyst Environment endpoints.
+
+    Handles the openenv-core wire format:
+      /reset returns {"observation": {...}, "reward": ..., "done": ...}
+      /step  expects {"action": {"action_type": ..., "parameters": ...}}
+             returns {"observation": {...}, "reward": ..., "done": ...}
+    """
 
     def __init__(self, base_url: str):
         self.base_url = base_url
         self.session = requests.Session()
         self.session.headers.update({"Content-Type": "application/json"})
+
+    def _unwrap(self, data: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        Unwrap openenv-core response format into a flat observation dict.
+        openenv wraps as: {"observation": {...}, "reward": ..., "done": ...}
+        We flatten it so callers get: {"alerts": [...], "reward": ..., "done": ..., ...}
+        """
+        if "observation" in data and isinstance(data["observation"], dict):
+            obs = dict(data["observation"])
+            # Promote top-level reward/done into the obs dict
+            if "reward" in data:
+                obs["reward"] = data["reward"]
+            if "done" in data:
+                obs["done"] = data["done"]
+            return obs
+        # Already flat format
+        return data
 
     def reset(self, task_id: str) -> Dict[str, Any]:
         """POST /reset — start a new episode."""
@@ -126,7 +150,7 @@ class SOCEnvClient:
                     timeout=REQUEST_TIMEOUT,
                 )
                 resp.raise_for_status()
-                return resp.json()
+                return self._unwrap(resp.json())
             except Exception as e:
                 if attempt < MAX_RETRIES:
                     time.sleep(2 ** attempt)
@@ -134,16 +158,21 @@ class SOCEnvClient:
                 raise RuntimeError(f"Failed to reset environment: {e}") from e
 
     def step(self, action: Dict[str, Any]) -> Dict[str, Any]:
-        """POST /step — take an action."""
+        """
+        POST /step — take an action.
+        Wraps the action in {"action": {...}} for openenv-core compatibility.
+        """
+        # Wrap in openenv "action" envelope
+        payload = {"action": action}
         for attempt in range(MAX_RETRIES + 1):
             try:
                 resp = self.session.post(
                     f"{self.base_url}/step",
-                    json=action,
+                    json=payload,
                     timeout=REQUEST_TIMEOUT,
                 )
                 resp.raise_for_status()
-                return resp.json()
+                return self._unwrap(resp.json())
             except Exception as e:
                 if attempt < MAX_RETRIES:
                     time.sleep(2 ** attempt)

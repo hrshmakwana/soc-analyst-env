@@ -55,6 +55,11 @@ def _obs_to_response(obs: SOCObservation) -> dict:
     }
 
 
+@app.get("/")
+async def root():
+    """Root endpoint for Hugging Face Space liveness probe."""
+    return {"status": "ready", "app": "soc_analyst_env"}
+
 @app.get("/health")
 async def health():
     """Health check endpoint."""

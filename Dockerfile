@@ -24,10 +24,6 @@ COPY server/ /app/server/
 # Copy inference script (for reference / validation)
 COPY inference.py /app/inference.py
 
-# Health check
-HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
-    CMD curl -f http://localhost:7860/health || exit 1
-
 # Expose port (HF Spaces standard)
 EXPOSE 7860
 

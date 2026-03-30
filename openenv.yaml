@@ -1,0 +1,22 @@
+spec_version: 1
+name: soc_analyst_env
+type: space
+runtime: fastapi
+app: server.app:app
+port: 7860
+tasks:
+  - id: alert_triage
+    name: Alert Triage
+    difficulty: easy
+    description: Classify 5 security alerts as true_positive, false_positive, or needs_investigation
+    max_steps: 15
+  - id: incident_investigation
+    name: Incident Investigation
+    difficulty: medium
+    description: Investigate a multi-alert security incident involving malware on a developer workstation
+    max_steps: 30
+  - id: full_incident_response
+    name: Full Incident Response
+    difficulty: hard
+    description: Handle a live multi-stage cyber attack from detection through containment and reporting
+    max_steps: 50

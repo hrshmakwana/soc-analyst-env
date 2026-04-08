@@ -302,7 +302,7 @@ def run_llm_agent(
     max_steps = task["max_steps"]
 
     # --- START structured log ---
-    print(f"START task={task_id} name={task['name']} difficulty={task['difficulty']}")
+    print(f"[START] task={task['name']}", flush=True)
 
     # Reset environment
     obs = env.reset(task_id)
@@ -329,7 +329,7 @@ def run_llm_agent(
             )
             response_text = completion.choices[0].message.content or ""
         except Exception as exc:
-            print(f"STEP {step_count+1} task={task_id} action=llm_error reward=0.000 message=LLM call failed: {exc}")
+            print(f"[STEP] step={step_count+1} reward=0.000 action=llm_error message=LLM call failed: {exc}", flush=True)
             response_text = ""
 
         # Parse action
@@ -346,7 +346,7 @@ def run_llm_agent(
         try:
             obs = env.step(action)
         except Exception as exc:
-            print(f"STEP {step_count} task={task_id} action={action_type} reward=0.000 message=Environment error: {exc}")
+            print(f"[STEP] step={step_count} reward=0.000 action={action_type} message=Environment error: {exc}", flush=True)
             break
 
         reward = obs.get("reward", 0.0) or 0.0
@@ -355,7 +355,7 @@ def run_llm_agent(
         msg = obs.get("message", "")[:80]
 
         # --- STEP structured log ---
-        print(f"STEP {step_count} task={task_id} action={action_type} reward={reward:+.3f} done={done} message={msg}")
+        print(f"[STEP] step={step_count} reward={reward:.4f} action={action_type} done={done}", flush=True)
 
         # Update conversation
         messages.append({"role": "assistant", "content": response_text or json.dumps(action)})
@@ -369,7 +369,7 @@ def run_llm_agent(
     final_score = _extract_final_score(obs, total_reward)
 
     # --- END structured log ---
-    print(f"END task={task_id} score={final_score:.4f} steps={step_count}")
+    print(f"[END] task={task['name']} score={final_score:.4f} steps={step_count}", flush=True)
 
     return {
         "task_id": task_id,
@@ -432,7 +432,7 @@ def run_heuristic_agent(
     task_id = task["task_id"]
 
     # --- START structured log ---
-    print(f"START task={task_id} name={task['name']} difficulty={task['difficulty']} mode=heuristic")
+    print(f"[START] task={task['name']}", flush=True)
 
     obs = env.reset(task_id)
     alerts = obs.get("alerts", [])
@@ -451,7 +451,7 @@ def run_heuristic_agent(
         msg = obs.get("message", "")[:80]
         done = obs.get("done", False)
         # --- STEP structured log ---
-        print(f"STEP {step_count} task={task_id} action={action_type} reward={reward:+.3f} done={done} message={msg}")
+        print(f"[STEP] step={step_count} reward={reward:.4f} action={action_type} done={done}", flush=True)
         return obs
 
     if task_id == "alert_triage":
@@ -642,7 +642,7 @@ def run_heuristic_agent(
     final_score = _extract_final_score(obs, total_reward)
 
     # --- END structured log ---
-    print(f"END task={task_id} score={final_score:.4f} steps={step_count}")
+    print(f"[END] task={task['name']} score={final_score:.4f} steps={step_count}", flush=True)
 
     return {
         "task_id": task_id,
@@ -658,7 +658,7 @@ def run_heuristic_agent(
 # ============================================================================
 
 def main() -> None:
-    print("START inference")
+    print("[START] inference", flush=True)
     print(f"  Environment : {SOC_ENV_URL}")
     print(f"  API Base    : {API_BASE_URL}")
     print(f"  Model       : {MODEL_NAME}")
@@ -696,7 +696,7 @@ def main() -> None:
                 result = run_heuristic_agent(env, task)
             results.append(result)
         except Exception as exc:
-            print(f"END task={task['task_id']} score=0.0000 steps=0 error={exc}")
+            print(f"[END] task={task['name']} score=0.0000 steps=0 error={exc}", flush=True)
             results.append({
                 "task_id": task["task_id"],
                 "task_name": task["name"],
@@ -715,9 +715,9 @@ def main() -> None:
     print()
     for r in results:
         score_str = f"{r['score']:.4f}" if "error" not in r else "ERROR"
-        print(f"RESULT task={r['task_id']} score={score_str} steps={r['steps']}")
+        print(f"[RESULT] task={r['task_name']} score={score_str} steps={r['steps']}", flush=True)
 
-    print(f"END inference average_score={avg_score:.4f} total_time={elapsed:.1f}s mode={'llm' if use_llm else 'heuristic'}")
+    print(f"[END] inference average_score={avg_score:.4f} total_time={elapsed:.1f}s", flush=True)
 
 
 if __name__ == "__main__":

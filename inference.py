@@ -409,12 +409,12 @@ def _extract_final_score(obs: Dict, total_reward: float) -> float:
     if score_match:
         try:
             score = float(score_match.group(1))
-            return max(0.0, min(1.0, score))
+            return max(0.001, min(0.999, score))
         except ValueError:
             pass
 
     # Fall back to cumulative reward clamped to [0, 1]
-    return max(0.0, min(1.0, total_reward))
+    return max(0.001, min(0.999, total_reward))
 
 
 # ============================================================================

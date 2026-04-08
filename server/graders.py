@@ -58,7 +58,7 @@ def grade_alert_triage(
     score += investigation_bonus
 
     # Clamp to [0.0, 1.0]
-    score = max(0.0, min(1.0, score))
+    score = max(0.001, min(0.999, score))
 
     return {
         "score": round(score, 4),
@@ -141,7 +141,7 @@ def grade_investigation(
         score += 0.10
         breakdown.append(f"Time efficiency bonus: +0.10 (completed in {steps_taken}/{max_steps} steps)")
 
-    score = max(0.0, min(1.0, score))
+    score = max(0.001, min(0.999, score))
 
     return {
         "score": round(score, 4),
@@ -267,7 +267,7 @@ def grade_incident_response(
         score += 0.05
         breakdown.append(f"Time efficiency: +0.05 (completed in {steps_taken}/{max_steps} steps)")
 
-    score = max(0.0, min(1.0, score))
+    score = max(0.001, min(0.999, score))
 
     return {
         "score": round(score, 4),

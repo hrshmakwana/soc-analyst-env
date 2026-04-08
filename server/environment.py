@@ -134,7 +134,7 @@ class SOCEnvironment(Environment):
             final_grade = self._compute_final_grade()
             result["done"] = True
             result["reward"] = final_grade["score"]
-            result["message"] += f"\n\n📊 FINAL SCORE: {final_grade['score']:.2f}/1.00\n"
+            result["message"] += f"\n\n📊 FINAL SCORE: {final_grade['score']:.4f}/1.00\n"
             result["message"] += "\n".join(final_grade.get("breakdown", []))
             result["message"] += f"\n\n{final_grade.get('feedback', '')}"
 

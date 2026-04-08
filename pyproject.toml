@@ -23,6 +23,9 @@ dependencies = [
     "httpx>=0.24.0",
 ]
 
+[project.scripts]
+server = "server.app:main"
+
 [project.optional-dependencies]
 dev = [
     "pytest>=7.0",

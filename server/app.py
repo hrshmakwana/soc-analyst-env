@@ -117,3 +117,14 @@ async def metadata():
             {"id": "full_incident_response", "name": "Full Incident Response", "difficulty": "hard", "max_steps": 50},
         ],
     }
+
+
+def main():
+    """Entry point for running the server directly."""
+    import uvicorn
+    uvicorn.run(app, host="0.0.0.0", port=7860)
+
+
+if __name__ == "__main__":
+    main()
+

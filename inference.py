@@ -2,18 +2,16 @@
 """
 Inference Script — SOC Analyst Environment
 ============================================
-MANDATORY ENVIRONMENT VARIABLES:
-    API_BASE_URL   The API endpoint for the LLM (default: HF Inference Router)
+ENVIRONMENT VARIABLES:
+    API_BASE_URL   The API endpoint for the LLM
     MODEL_NAME     The model identifier to use for inference
     HF_TOKEN       Your Hugging Face / API key
 
-This script runs an LLM agent against the SOC Analyst Environment for all 3 tasks:
-  1. Alert Triage (easy)       — Classify 5 security alerts
-  2. Incident Investigation (medium) — Investigate a multi-alert incident
-  3. Full Incident Response (hard)   — Handle a live multi-stage attack
+    LOCAL_IMAGE_NAME  (optional) Docker image name when using from_docker_image()
 
-The inference script calls the deployed HF Space via HTTP endpoints.
+This script runs an LLM agent against the SOC Analyst Environment for all 3 tasks.
 Falls back to a deterministic heuristic agent if no API key is available.
+Stdout logs follow the required structured format: START / STEP / END.
 """
 
 import json
@@ -31,8 +29,11 @@ from openai import OpenAI
 # Mandatory environment variables (as required by hackathon rules)
 # ---------------------------------------------------------------------------
 API_BASE_URL = os.getenv("API_BASE_URL", "https://router.huggingface.co/v1")
-API_KEY = os.getenv("HF_TOKEN") or os.getenv("API_KEY")
 MODEL_NAME = os.getenv("MODEL_NAME", "meta-llama/Llama-3.3-70B-Instruct")
+HF_TOKEN = os.getenv("HF_TOKEN")
+
+# Optional — if you use from_docker_image():
+LOCAL_IMAGE_NAME = os.getenv("LOCAL_IMAGE_NAME")
 
 # Environment URL — the deployed HF Space
 SOC_ENV_URL = os.getenv(
@@ -131,13 +132,11 @@ class SOCEnvClient:
         """
         if "observation" in data and isinstance(data["observation"], dict):
             obs = dict(data["observation"])
-            # Promote top-level reward/done into the obs dict
             if "reward" in data:
                 obs["reward"] = data["reward"]
             if "done" in data:
                 obs["done"] = data["done"]
             return obs
-        # Already flat format
         return data
 
     def reset(self, task_id: str) -> Dict[str, Any]:
@@ -162,7 +161,6 @@ class SOCEnvClient:
         POST /step — take an action.
         Wraps the action in {"action": {...}} for openenv-core compatibility.
         """
-        # Wrap in openenv "action" envelope
         payload = {"action": action}
         for attempt in range(MAX_RETRIES + 1):
             try:
@@ -230,7 +228,6 @@ def format_observation(obs: Dict[str, Any]) -> str:
     query_results = obs.get("query_results")
     if query_results:
         qr_str = json.dumps(query_results, indent=2, default=str)
-        # Truncate if too long
         if len(qr_str) > 2000:
             qr_str = qr_str[:2000] + "\n... (truncated)"
         parts.append(f"## Last Query Results\n```json\n{qr_str}\n```\n")
@@ -304,13 +301,11 @@ def run_llm_agent(
     task_id = task["task_id"]
     max_steps = task["max_steps"]
 
-    print(f"\n{'='*65}")
-    print(f"  🔒 Task: {task['name']} ({task['difficulty']})")
-    print(f"{'='*65}")
+    # --- START structured log ---
+    print(f"START task={task_id} name={task['name']} difficulty={task['difficulty']}")
 
     # Reset environment
     obs = env.reset(task_id)
-    print(f"  Goal: {obs.get('message', '')[:120]}...")
     print(f"  Alerts: {len(obs.get('alerts', []))}")
 
     messages = [
@@ -334,14 +329,12 @@ def run_llm_agent(
             )
             response_text = completion.choices[0].message.content or ""
         except Exception as exc:
-            print(f"  ⚠️  LLM call failed: {exc}")
+            print(f"STEP {step_count+1} task={task_id} action=llm_error reward=0.000 message=LLM call failed: {exc}")
             response_text = ""
 
         # Parse action
         action = parse_llm_action(response_text)
         if action is None:
-            print(f"  Step {step_count+1}: ⚠️ Could not parse action from LLM. Skipping.")
-            # Try a safe fallback action
             action = _get_fallback_action(obs, task_id, step_count)
             if action is None:
                 break
@@ -353,7 +346,7 @@ def run_llm_agent(
         try:
             obs = env.step(action)
         except Exception as exc:
-            print(f"  Step {step_count}: ❌ Environment error: {exc}")
+            print(f"STEP {step_count} task={task_id} action={action_type} reward=0.000 message=Environment error: {exc}")
             break
 
         reward = obs.get("reward", 0.0) or 0.0
@@ -361,21 +354,22 @@ def run_llm_agent(
         done = obs.get("done", False)
         msg = obs.get("message", "")[:80]
 
-        print(f"  Step {step_count}: {action_type} → reward={reward:+.3f} | {msg}")
+        # --- STEP structured log ---
+        print(f"STEP {step_count} task={task_id} action={action_type} reward={reward:+.3f} done={done} message={msg}")
 
         # Update conversation
         messages.append({"role": "assistant", "content": response_text or json.dumps(action)})
         messages.append({"role": "user", "content": format_observation(obs)})
 
-        # Trim conversation to avoid context overflow (keep system + last 10 turns)
+        # Trim conversation to avoid context overflow
         if len(messages) > 22:
             messages = messages[:1] + messages[-20:]
 
-    # Extract final score from the last observation
+    # Extract final score
     final_score = _extract_final_score(obs, total_reward)
 
-    print(f"\n  ✅ Final Score: {final_score:.4f}")
-    print(f"  Steps: {step_count}/{max_steps}")
+    # --- END structured log ---
+    print(f"END task={task_id} score={final_score:.4f} steps={step_count}")
 
     return {
         "task_id": task_id,
@@ -437,9 +431,8 @@ def run_heuristic_agent(
     """
     task_id = task["task_id"]
 
-    print(f"\n{'='*65}")
-    print(f"  🔒 Task: {task['name']} ({task['difficulty']}) [HEURISTIC MODE]")
-    print(f"{'='*65}")
+    # --- START structured log ---
+    print(f"START task={task_id} name={task['name']} difficulty={task['difficulty']} mode=heuristic")
 
     obs = env.reset(task_id)
     alerts = obs.get("alerts", [])
@@ -456,29 +449,28 @@ def run_heuristic_agent(
         step_count += 1
         action_type = action.get("action_type", "?")
         msg = obs.get("message", "")[:80]
-        print(f"  Step {step_count}: {action_type} → reward={reward:+.3f} | {msg}")
+        done = obs.get("done", False)
+        # --- STEP structured log ---
+        print(f"STEP {step_count} task={task_id} action={action_type} reward={reward:+.3f} done={done} message={msg}")
         return obs
 
     if task_id == "alert_triage":
-        # Strategy: lookup threat intel on each alert's source IP, then classify
         classifications = {
-            "ALT-001": "true_positive",   # Brute force from malicious IP
-            "ALT-002": "false_positive",  # Internal user forgot password
-            "ALT-003": "true_positive",   # Phishing with malicious attachment
-            "ALT-004": "false_positive",  # Legitimate job application
-            "ALT-005": "true_positive",   # Malware with C2 beacon
+            "ALT-001": "true_positive",
+            "ALT-002": "false_positive",
+            "ALT-003": "true_positive",
+            "ALT-004": "false_positive",
+            "ALT-005": "true_positive",
         }
 
         for alert in alerts:
             aid = alert["alert_id"]
-            # Investigate first
             do_step({
                 "action_type": "lookup_threat_intel",
                 "parameters": {"query": alert["source_ip"], "query_type": "ip"},
             })
             if obs.get("done", False):
                 break
-            # Classify
             classification = classifications.get(aid, "needs_investigation")
             do_step({
                 "action_type": "classify_alert",
@@ -488,33 +480,28 @@ def run_heuristic_agent(
                 break
 
     elif task_id == "incident_investigation":
-        # Investigate endpoint and network logs
         for log_type in ["endpoint", "network", "email"]:
             do_step({
                 "action_type": "query_logs",
                 "parameters": {"log_type": log_type},
             })
 
-        # Threat intel on key IPs
         for ip in ["198.51.100.200", "10.0.3.105", "203.0.113.77"]:
             do_step({
                 "action_type": "lookup_threat_intel",
                 "parameters": {"query": ip, "query_type": "ip"},
             })
 
-        # Check network for compromised host
         do_step({
             "action_type": "check_network",
             "parameters": {"host": "workstation-dev-42"},
         })
 
-        # Lookup malware domain
         do_step({
             "action_type": "lookup_threat_intel",
             "parameters": {"query": "malware-c2.evil.com", "query_type": "domain"},
         })
 
-        # Submit report
         do_step({
             "action_type": "submit_report",
             "parameters": {
@@ -540,21 +527,18 @@ def run_heuristic_agent(
                 "parameters": {"log_type": log_type},
             })
 
-        # Threat intel on all malicious IPs
         for ip in ["198.51.100.200", "198.51.100.45", "192.0.2.88", "203.0.113.77"]:
             do_step({
                 "action_type": "lookup_threat_intel",
                 "parameters": {"query": ip, "query_type": "ip"},
             })
 
-        # Check network connections
         for host in ["workstation-dev-42", "file-server-01"]:
             do_step({
                 "action_type": "check_network",
                 "parameters": {"host": host},
             })
 
-        # Lookup malicious domains and hashes
         do_step({
             "action_type": "lookup_threat_intel",
             "parameters": {"query": "malware-c2.evil.com", "query_type": "domain"},
@@ -595,7 +579,7 @@ def run_heuristic_agent(
             },
         })
 
-        # Phase 4: Submit comprehensive report
+        # Phase 4: Report
         do_step({
             "action_type": "submit_report",
             "parameters": {
@@ -656,8 +640,9 @@ def run_heuristic_agent(
         })
 
     final_score = _extract_final_score(obs, total_reward)
-    print(f"\n  ✅ Final Score: {final_score:.4f}")
-    print(f"  Steps: {step_count}")
+
+    # --- END structured log ---
+    print(f"END task={task_id} score={final_score:.4f} steps={step_count}")
 
     return {
         "task_id": task_id,
@@ -673,13 +658,11 @@ def run_heuristic_agent(
 # ============================================================================
 
 def main() -> None:
-    print("=" * 65)
-    print("  🔒 SOC Analyst Environment — Inference Script")
-    print("=" * 65)
+    print("START inference")
     print(f"  Environment : {SOC_ENV_URL}")
     print(f"  API Base    : {API_BASE_URL}")
     print(f"  Model       : {MODEL_NAME}")
-    print(f"  API Key     : {'✓ Configured' if API_KEY else '✗ Not set (using heuristic mode)'}")
+    print(f"  HF_TOKEN    : {'set' if HF_TOKEN else 'not set (heuristic mode)'}")
     print()
 
     # Initialize environment client
@@ -687,17 +670,18 @@ def main() -> None:
 
     # Check health
     if env.health():
-        print("  ✅ Environment is live and healthy.")
+        print("  Environment is live and healthy.")
     else:
-        print("  ⚠️  Environment health check failed. Attempting to proceed anyway...")
+        print("  WARNING: Health check failed. Attempting to proceed anyway...")
 
     # Decide mode: LLM or Heuristic
-    use_llm = bool(API_KEY and MODEL_NAME)
+    # All LLM calls use the OpenAI client configured via the env variables
+    use_llm = bool(HF_TOKEN and MODEL_NAME)
     if use_llm:
-        print(f"  🤖 Running in LLM mode ({MODEL_NAME})")
-        client = OpenAI(base_url=API_BASE_URL, api_key=API_KEY)
+        print(f"  Mode: LLM ({MODEL_NAME})")
+        client = OpenAI(base_url=API_BASE_URL, api_key=HF_TOKEN)
     else:
-        print("  🧠 Running in heuristic mode (no API key)")
+        print("  Mode: Heuristic (no HF_TOKEN)")
         client = None
 
     # Run all tasks
@@ -712,7 +696,7 @@ def main() -> None:
                 result = run_heuristic_agent(env, task)
             results.append(result)
         except Exception as exc:
-            print(f"\n  ❌ Task '{task['name']}' failed: {exc}")
+            print(f"END task={task['task_id']} score=0.0000 steps=0 error={exc}")
             results.append({
                 "task_id": task["task_id"],
                 "task_name": task["name"],
@@ -725,22 +709,15 @@ def main() -> None:
     elapsed = time.time() - start_time
 
     # Summary
-    print(f"\n\n{'='*65}")
-    print("  📊 INFERENCE RESULTS SUMMARY")
-    print(f"{'='*65}")
-    print(f"  {'Task':<35} {'Score':>8} {'Steps':>8}")
-    print(f"  {'-'*55}")
-    for r in results:
-        score_str = f"{r['score']:.4f}" if "error" not in r else "ERROR"
-        print(f"  {r['task_name']:<35} {score_str:>8} {r['steps']:>8}")
     total_scores = [r["score"] for r in results if "error" not in r]
     avg_score = sum(total_scores) / len(total_scores) if total_scores else 0.0
-    print(f"  {'-'*55}")
-    print(f"  {'AVERAGE':<35} {avg_score:>8.4f}")
-    print(f"{'='*65}")
-    print(f"  ⏱️  Total time: {elapsed:.1f}s")
-    print(f"  Mode: {'LLM (' + MODEL_NAME + ')' if use_llm else 'Heuristic'}")
-    print(f"{'='*65}\n")
+
+    print()
+    for r in results:
+        score_str = f"{r['score']:.4f}" if "error" not in r else "ERROR"
+        print(f"RESULT task={r['task_id']} score={score_str} steps={r['steps']}")
+
+    print(f"END inference average_score={avg_score:.4f} total_time={elapsed:.1f}s mode={'llm' if use_llm else 'heuristic'}")
 
 
 if __name__ == "__main__":

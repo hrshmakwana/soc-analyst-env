@@ -512,4 +512,4 @@ class SOCEnvironment(Environment):
                 max_steps=self._task.get("max_steps", 50),
             )
 
-        return {"score": 0.0, "feedback": "Unknown task", "breakdown": []}
+        return {"score": 0.001, "feedback": "Unknown task", "breakdown": []}

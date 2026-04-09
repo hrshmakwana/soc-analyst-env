@@ -696,13 +696,13 @@ def main() -> None:
                 result = run_heuristic_agent(env, task)
             results.append(result)
         except Exception as exc:
-            print(f"[END] task={task['name']} score=0.0000 steps=0 error={exc}", flush=True)
+            print(f"[END] task={task['name']} score=0.0010 steps=0 error={exc}", flush=True)
             results.append({
                 "task_id": task["task_id"],
                 "task_name": task["name"],
-                "score": 0.0,
+                "score": 0.001,
                 "steps": 0,
-                "total_reward": 0.0,
+                "total_reward": 0.001,
                 "error": str(exc),
             })
 
@@ -710,7 +710,7 @@ def main() -> None:
 
     # Summary
     total_scores = [r["score"] for r in results if "error" not in r]
-    avg_score = sum(total_scores) / len(total_scores) if total_scores else 0.0
+    avg_score = sum(total_scores) / len(total_scores) if total_scores else 0.001
 
     print()
     for r in results:
